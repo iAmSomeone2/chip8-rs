@@ -1,7 +1,12 @@
 use std::{error::Error, fmt};
+use std::convert::identity;
 use std::fmt::Formatter;
+use crate::opcode::BitOp::{AndAssign, OrAssign, ShiftLeft, ShiftRight, XorAssign};
 use crate::opcode::ConstOp::{AddAssign, Assign};
-use crate::opcode::Opcode::{Conditional, Display, Flow};
+use crate::opcode::KeyOp::{GetKey, KeyEq, KeyNe};
+use crate::opcode::MemoryOp::SetI;
+use crate::opcode::Opcode::{Bcd, Conditional, Display, Flow, Key, Memory, Random, SetVxToVy, Timer};
+use crate::opcode::TimerOp::{GetDelay, SetDelay, SetSound};
 
 /// Error used when a 16-bit word cannot be decoded into an opcode
 #[derive(Debug, PartialEq, Eq)]
@@ -195,7 +200,21 @@ enum BitOp {
 
 impl BitOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
-        todo!()
+        let (check_nib, idx_x, idx_y, n) = split_nibbles(word);
+        if check_nib != 0x8 {
+            return Err(DecodeError::new(word));
+        }
+        let idx_x = idx_x as usize;
+        let idx_y = idx_y as usize;
+
+        return match n {
+            0x1 => Ok(OrAssign(idx_x, idx_y)),
+            0x2 => Ok(AndAssign(idx_x, idx_y)),
+            0x3 => Ok(XorAssign(idx_x, idx_y)),
+            0x6 => Ok(ShiftRight(idx_x)),
+            0xE => Ok(ShiftLeft(idx_x)),
+            _ => Err(DecodeError::new(word))
+        }
     }
 }
 
@@ -212,7 +231,19 @@ enum MathOp {
 
 impl MathOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
-        todo!()
+        let (check_nib, idx_x, idx_y, n) = split_nibbles(word);
+        if check_nib != 0x8 {
+            return Err(DecodeError::new(word));
+        }
+        let idx_x = idx_x as usize;
+        let idx_y = idx_y as usize;
+
+        return match n {
+            0x4 => Ok(MathOp::AddAssign(idx_x, idx_y)),
+            0x5 => Ok(MathOp::SubAssign(idx_x, idx_y)),
+            0x7 => Ok(MathOp::Subtract(idx_x, idx_y)),
+            _ => Err(DecodeError::new(word))
+        }
     }
 }
 
@@ -232,7 +263,26 @@ enum MemoryOp {
 
 impl MemoryOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
-        todo!()
+        let (nibble, value) = split_12bit(word);
+        if nibble != 0xA && nibble != 0xF {
+            return Err(DecodeError::new(word));
+        }
+
+        return match nibble {
+            0xA => Ok(SetI(value)),
+            0xF => {
+                let idx_x = ((value & 0x0F00) >> 8) as usize;
+                let sub_op = value & 0x00FF;
+                match sub_op {
+                    0x1E => Ok(MemoryOp::AddAssign(idx_x)),
+                    0x29 => Ok(MemoryOp::SetSpriteAddr(idx_x)),
+                    0x55 => Ok(MemoryOp::RegDump(idx_x)),
+                    0x65 => Ok(MemoryOp::RegLoad(idx_x)),
+                    _ => Err(DecodeError::new(word))
+                }
+            }
+            _ => Err(DecodeError::new(word))
+        }
     }
 }
 
@@ -248,7 +298,24 @@ enum KeyOp {
 
 impl KeyOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
-        todo!()
+        let (nibble, idx_x, sub_op) = split_8bit(word);
+        let idx_x = idx_x as usize;
+        return match nibble {
+            0xE => {
+                match sub_op {
+                    0x9E => Ok(KeyEq(idx_x)),
+                    0xA1 => Ok(KeyNe(idx_x)),
+                    _ => Err(DecodeError::new(word))
+                }
+            }
+            0xF => {
+                match sub_op {
+                    0x0A => Ok(GetKey(idx_x)),
+                    _ => Err(DecodeError::new(word))
+                }
+            }
+            _ => Err(DecodeError::new(word))
+        }
     }
 }
 
@@ -264,7 +331,18 @@ enum TimerOp {
 
 impl TimerOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
-        todo!()
+        let (check_nib, idx_x, sub_op) = split_8bit(word);
+        if check_nib != 0xF {
+            return Err(DecodeError::new(word));
+        }
+
+        let idx_x = idx_x as usize;
+        return match sub_op {
+            0x07 => Ok(GetDelay(idx_x)),
+            0x15 => Ok(SetDelay(idx_x)),
+            0x18 => Ok(SetSound(idx_x)),
+            _ => Err(DecodeError::new(word))
+        }
     }
 }
 
@@ -287,7 +365,7 @@ enum Opcode {
     /// Memory operations (see [MemoryOp])
     Memory(MemoryOp),
     /// Set Vx to the result of a random number AND NN
-    Random(usize, u16),
+    Random(usize, u8),
     /// Keyboard operations
     Key(KeyOp),
     /// Timer manipulation operations
@@ -324,6 +402,64 @@ impl Opcode {
                         let op = ConstOp::decode(word)?;
                         Ok(Self::Const(op))
                     }
+                    0x8 => {
+                        match nibble.3 {
+                            0x0 => Ok(SetVxToVy(nibble.1 as usize, nibble.2 as usize)),
+                            0x1 | 0x2 | 0x3 | 0x6 | 0xE => {
+                                // Bitwise operations
+                                let op = BitOp::decode(word)?;
+                                Ok(Self::Bitwise(op))
+                            },
+                            0x4 | 0x5 | 0x7 => {
+                                // Math operations
+                                let op = MathOp::decode(word)?;
+                                Ok(Self::Math(op))
+                            }
+                            _ => Err(DecodeError::new(word))
+                        }
+                    }
+                    0xA => {
+                        // Memory operations 1/2
+                        let op = MemoryOp::decode(word)?;
+                        Ok(Memory(op))
+                    }
+                    0xC => {
+                        // Random
+                        let (_, idx_x, value) = split_8bit(word);
+                        let idx_x = idx_x as usize;
+                        Ok(Random(idx_x, value))
+                    }
+                    0xE => {
+                        // Key operations 1/2
+                        let op = KeyOp::decode(word)?;
+                        Ok(Key(op))
+                    }
+                    0xF => {
+                        let sub_op = word & 0x00FF;
+                        match sub_op {
+                            0x07 | 0x15 | 0x18 => {
+                                // Timer operations
+                                let op = TimerOp::decode(word)?;
+                                Ok(Timer(op))
+                            }
+                            0x0A => {
+                                // Key operations 2/2
+                                let op = KeyOp::decode(word)?;
+                                Ok(Key(op))
+                            }
+                            0x1E | 0x29 | 0x55 | 0x65 => {
+                                // Memory operation 2/2
+                                let op = MemoryOp::decode(word)?;
+                                Ok(Memory(op))
+                            }
+                            0x33 => {
+                                // BCD operation
+                                let idx_x = ((word & 0x0F00) >> 8) as usize;
+                                Ok(Bcd(idx_x))
+                            }
+                            _ => Err(DecodeError::new(word))
+                        }
+                    }
                     _ => Err(DecodeError::new(word))
                 }
             },
@@ -333,6 +469,7 @@ impl Opcode {
 
 #[cfg(test)]
 mod tests {
+    use crate::opcode::Opcode::Timer;
     use super::*;
 
     #[test]
@@ -423,15 +560,120 @@ mod tests {
     }
 
     #[test]
+    fn decode_bit_op() {
+        let test_data = [
+            (0x8121, Ok(OrAssign(1, 2))),
+            (0x8342, Ok(AndAssign(3, 4))),
+            (0x8213, Ok(XorAssign(2, 1))),
+            (0x8AB6, Ok(ShiftRight(0xA))),
+            (0x8BAE, Ok(ShiftLeft(0xB))),
+            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+        ];
+
+        for data in test_data {
+            let (input, result) = data;
+            assert_eq!(BitOp::decode(input), result);
+        }
+    }
+
+    #[test]
+    fn decode_math_op() {
+        let test_data = [
+            (0x8AB4, Ok(MathOp::AddAssign(0xA, 0xB))),
+            (0x8CD5, Ok(MathOp::SubAssign(0xC, 0xD))),
+            (0x8EF7, Ok(MathOp::Subtract(0xE, 0xF))),
+            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+        ];
+
+        for data in test_data {
+            let (input, result) = data;
+            assert_eq!(MathOp::decode(input), result);
+        }
+    }
+
+    #[test]
+    fn decode_memory_op() {
+        let test_data = [
+            (0xA123, Ok(MemoryOp::SetI(0x0123))),
+            (0xFA1E, Ok(MemoryOp::AddAssign(0xA))),
+            (0xFB29, Ok(MemoryOp::SetSpriteAddr(0xB))),
+            (0xF355, Ok(MemoryOp::RegDump(0x3))),
+            (0xFC65, Ok(MemoryOp::RegLoad(0xC))),
+            (0xF099, Err(DecodeError::new(0xF099))),
+            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+        ];
+
+        for data in test_data {
+            let (input, result) = data;
+            assert_eq!(MemoryOp::decode(input), result);
+        }
+    }
+
+    #[test]
+    fn decode_key_op() {
+        let test_data = [
+            (0xEA9E, Ok(KeyOp::KeyEq(0xA))),
+            (0xECA1, Ok(KeyOp::KeyNe(0xC))),
+            (0xE000, Err(DecodeError::new(0xE000))),
+            (0xF00A, Ok(KeyOp::GetKey(0x0))),
+            (0xF000, Err(DecodeError::new(0xF000))),
+            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+        ];
+
+        for data in test_data {
+            let (input, result) = data;
+            assert_eq!(KeyOp::decode(input), result);
+        }
+    }
+
+    #[test]
+    fn decode_timer_op() {
+        let test_data = [
+            (0xFA07, Ok(GetDelay(0xA))),
+            (0xFB15, Ok(SetDelay(0xB))),
+            (0xFC18, Ok(SetSound(0xC))),
+            (0xF000, Err(DecodeError::new(0xF000))),
+            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+        ];
+
+        for data in test_data {
+            let (input, result) = data;
+            assert_eq!(TimerOp::decode(input), result);
+        }
+    }
+
+    #[test]
     fn decode_opcode() {
         let test_data = [
+            // Flow
             (0x00EE, Ok(Flow(FlowOp::Return))),
             (0x1ABC, Ok(Flow(FlowOp::Jump(0x0ABC)))),
+            // Display
             (0x00E0, Ok(Display(DisplayOp::Clear))),
             (0xD123, Ok(Display(DisplayOp::DrawSprite((1, 2), 3)))),
+            // Conditional
             (0x4220, Ok(Conditional(ConditionalOp::VxNeNN(2, 0x20)))),
             (0x5343, Err(DecodeError::new(0x5343))),
+            // Const
             (0x7344, Ok(Opcode::Const(AddAssign(0x3, 0x44)))),
+            // Bitwise
+            (0x8213, Ok(Opcode::Bitwise(XorAssign(2, 1)))),
+            // Math
+            (0x8AB4, Ok(Opcode::Math(MathOp::AddAssign(0xA, 0xB)))),
+            // Memory
+            (0xA123, Ok(Memory(SetI(0x0123)))),
+            (0xFB29, Ok(Memory(MemoryOp::SetSpriteAddr(0xB)))),
+            // Key
+            (0xECA1, Ok(Key(KeyNe(0xC)))),
+            (0xF00A, Ok(Key(GetKey(0x0)))),
+            // Timer
+            (0xFB15, Ok(Timer(SetDelay(0xB)))),
+            (0xFC18, Ok(Timer(SetSound(0xC)))),
+            // Random
+            (0xCABC, Ok(Random(0xA, 0xBC))),
+            // BCD
+            (0xFA33, Ok(Bcd(0xA))),
+            // Error
             (ERR_OP, Err(DecodeError::new(ERR_OP)))
         ];
 
@@ -440,5 +682,4 @@ mod tests {
             assert_eq!(Opcode::decode(input), result);
         }
     }
-
 }
