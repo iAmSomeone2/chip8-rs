@@ -1,11 +1,8 @@
 #![forbid(unsafe_code)]
 
-extern crate core;
-
 mod opcode;
 
-use crate::opcode::{ConstOp, DecodeError, DisplayOp, FlowOp, MemoryOp};
-use opcode::Opcode;
+use opcode::{ConstOp, DecodeError, DisplayOp, FlowOp, MemoryOp, Opcode};
 use std::error::Error;
 use std::fmt;
 use std::fmt::Formatter;

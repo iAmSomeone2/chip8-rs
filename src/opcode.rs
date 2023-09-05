@@ -1,11 +1,3 @@
-use crate::opcode::BitOp::{AndAssign, OrAssign, ShiftLeft, ShiftRight, XorAssign};
-use crate::opcode::ConstOp::{AddAssign, Assign};
-use crate::opcode::KeyOp::{GetKey, KeyEq, KeyNe};
-use crate::opcode::MemoryOp::SetI;
-use crate::opcode::Opcode::{
-    Bcd, Conditional, Display, Flow, Key, Memory, Random, SetVxToVy, Timer,
-};
-use crate::opcode::TimerOp::{GetDelay, SetDelay, SetSound};
 use std::fmt::Formatter;
 use std::{error::Error, fmt};
 
@@ -99,13 +91,13 @@ pub enum FlowOp {
 impl FlowOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
         return match word {
-            0x00EE => Ok(FlowOp::Return),
+            0x00EE => Ok(Self::Return),
             _ => {
                 let (nibble, constant) = split_12bit(word);
                 match nibble {
-                    0x1 => Ok(FlowOp::Jump(constant)),
-                    0x2 => Ok(FlowOp::Call(constant)),
-                    0xB => Ok(FlowOp::IndexedJump(constant)),
+                    0x1 => Ok(Self::Jump(constant)),
+                    0x2 => Ok(Self::Call(constant)),
+                    0xB => Ok(Self::IndexedJump(constant)),
                     _ => Err(DecodeError::new(word)),
                 }
             }
@@ -134,8 +126,8 @@ impl ConditionalOp {
                 let (_, idx_x, value) = split_8bit(word);
                 let idx_x = idx_x as usize;
                 match nibbles.0 {
-                    0x3 => Ok(ConditionalOp::VxEqNN(idx_x, value)),
-                    0x4 => Ok(ConditionalOp::VxNeNN(idx_x, value)),
+                    0x3 => Ok(Self::VxEqNN(idx_x, value)),
+                    0x4 => Ok(Self::VxNeNN(idx_x, value)),
                     _ => Err(DecodeError::new(word)),
                 }
             }
@@ -147,8 +139,8 @@ impl ConditionalOp {
                 let idx_x = idx_x as usize;
                 let idx_y = idx_y as usize;
                 match nibbles.0 {
-                    0x5 => Ok(ConditionalOp::VxEqVy(idx_x, idx_y)),
-                    0x9 => Ok(ConditionalOp::VxNeVy(idx_x, idx_y)),
+                    0x5 => Ok(Self::VxEqVy(idx_x, idx_y)),
+                    0x9 => Ok(Self::VxNeVy(idx_x, idx_y)),
                     _ => Err(DecodeError::new(word)),
                 }
             }
@@ -171,8 +163,8 @@ impl ConstOp {
         let (nibble, idx_x, value) = split_8bit(word);
         let idx_x = idx_x as usize;
         return match nibble {
-            0x6 => Ok(Assign(idx_x, value)),
-            0x7 => Ok(AddAssign(idx_x, value)),
+            0x6 => Ok(Self::Assign(idx_x, value)),
+            0x7 => Ok(Self::AddAssign(idx_x, value)),
             _ => Err(DecodeError::new(word)),
         };
     }
@@ -203,11 +195,11 @@ impl BitOp {
         let idx_y = idx_y as usize;
 
         return match n {
-            0x1 => Ok(OrAssign(idx_x, idx_y)),
-            0x2 => Ok(AndAssign(idx_x, idx_y)),
-            0x3 => Ok(XorAssign(idx_x, idx_y)),
-            0x6 => Ok(ShiftRight(idx_x)),
-            0xE => Ok(ShiftLeft(idx_x)),
+            0x1 => Ok(Self::OrAssign(idx_x, idx_y)),
+            0x2 => Ok(Self::AndAssign(idx_x, idx_y)),
+            0x3 => Ok(Self::XorAssign(idx_x, idx_y)),
+            0x6 => Ok(Self::ShiftRight(idx_x)),
+            0xE => Ok(Self::ShiftLeft(idx_x)),
             _ => Err(DecodeError::new(word)),
         };
     }
@@ -234,9 +226,9 @@ impl MathOp {
         let idx_y = idx_y as usize;
 
         return match n {
-            0x4 => Ok(MathOp::AddAssign(idx_x, idx_y)),
-            0x5 => Ok(MathOp::SubAssign(idx_x, idx_y)),
-            0x7 => Ok(MathOp::Subtract(idx_x, idx_y)),
+            0x4 => Ok(Self::AddAssign(idx_x, idx_y)),
+            0x5 => Ok(Self::SubAssign(idx_x, idx_y)),
+            0x7 => Ok(Self::Subtract(idx_x, idx_y)),
             _ => Err(DecodeError::new(word)),
         };
     }
@@ -264,15 +256,15 @@ impl MemoryOp {
         }
 
         return match nibble {
-            0xA => Ok(SetI(value)),
+            0xA => Ok(MemoryOp::SetI(value)),
             0xF => {
                 let idx_x = ((value & 0x0F00) >> 8) as usize;
                 let sub_op = value & 0x00FF;
                 match sub_op {
-                    0x1E => Ok(MemoryOp::AddAssign(idx_x)),
-                    0x29 => Ok(MemoryOp::SetSpriteAddr(idx_x)),
-                    0x55 => Ok(MemoryOp::RegDump(idx_x)),
-                    0x65 => Ok(MemoryOp::RegLoad(idx_x)),
+                    0x1E => Ok(Self::AddAssign(idx_x)),
+                    0x29 => Ok(Self::SetSpriteAddr(idx_x)),
+                    0x55 => Ok(Self::RegDump(idx_x)),
+                    0x65 => Ok(Self::RegLoad(idx_x)),
                     _ => Err(DecodeError::new(word)),
                 }
             }
@@ -297,12 +289,12 @@ impl KeyOp {
         let idx_x = idx_x as usize;
         return match nibble {
             0xE => match sub_op {
-                0x9E => Ok(KeyEq(idx_x)),
-                0xA1 => Ok(KeyNe(idx_x)),
+                0x9E => Ok(Self::KeyEq(idx_x)),
+                0xA1 => Ok(Self::KeyNe(idx_x)),
                 _ => Err(DecodeError::new(word)),
             },
             0xF => match sub_op {
-                0x0A => Ok(GetKey(idx_x)),
+                0x0A => Ok(Self::GetKey(idx_x)),
                 _ => Err(DecodeError::new(word)),
             },
             _ => Err(DecodeError::new(word)),
@@ -329,9 +321,9 @@ impl TimerOp {
 
         let idx_x = idx_x as usize;
         return match sub_op {
-            0x07 => Ok(GetDelay(idx_x)),
-            0x15 => Ok(SetDelay(idx_x)),
-            0x18 => Ok(SetSound(idx_x)),
+            0x07 => Ok(Self::GetDelay(idx_x)),
+            0x15 => Ok(Self::SetDelay(idx_x)),
+            0x18 => Ok(Self::SetSound(idx_x)),
             _ => Err(DecodeError::new(word)),
         };
     }
@@ -369,24 +361,24 @@ impl Opcode {
     pub fn decode(word: u16) -> Result<Self, DecodeError> {
         let nibble = split_nibbles(word);
         return match word {
-            0x00E0 => Ok(Display(DisplayOp::Clear)),
-            0x00EE => Ok(Flow(FlowOp::Return)),
+            0x00E0 => Ok(Self::Display(DisplayOp::Clear)),
+            0x00EE => Ok(Self::Flow(FlowOp::Return)),
             _ => {
                 match nibble.0 {
                     0x1 | 0x2 | 0xB => {
                         // Flow operations
                         let op = FlowOp::decode(word)?;
-                        Ok(Flow(op))
+                        Ok(Self::Flow(op))
                     }
                     0x3 | 0x4 | 0x5 | 0x9 => {
                         // Conditional operations
                         let op = ConditionalOp::decode(word)?;
-                        Ok(Conditional(op))
+                        Ok(Self::Conditional(op))
                     }
                     0xD => {
                         // Draw sprite
                         let (_, idx_x, idx_y, n) = nibble;
-                        Ok(Display(DisplayOp::DrawSprite(
+                        Ok(Self::Display(DisplayOp::DrawSprite(
                             (idx_x as usize, idx_y as usize),
                             n,
                         )))
@@ -398,7 +390,7 @@ impl Opcode {
                     }
                     0x8 => {
                         match nibble.3 {
-                            0x0 => Ok(SetVxToVy(nibble.1 as usize, nibble.2 as usize)),
+                            0x0 => Ok(Self::SetVxToVy(nibble.1 as usize, nibble.2 as usize)),
                             0x1 | 0x2 | 0x3 | 0x6 | 0xE => {
                                 // Bitwise operations
                                 let op = BitOp::decode(word)?;
@@ -415,18 +407,18 @@ impl Opcode {
                     0xA => {
                         // Memory operations 1/2
                         let op = MemoryOp::decode(word)?;
-                        Ok(Memory(op))
+                        Ok(Self::Memory(op))
                     }
                     0xC => {
                         // Random
                         let (_, idx_x, value) = split_8bit(word);
                         let idx_x = idx_x as usize;
-                        Ok(Random(idx_x, value))
+                        Ok(Self::Random(idx_x, value))
                     }
                     0xE => {
                         // Key operations 1/2
                         let op = KeyOp::decode(word)?;
-                        Ok(Key(op))
+                        Ok(Self::Key(op))
                     }
                     0xF => {
                         let sub_op = word & 0x00FF;
@@ -434,22 +426,22 @@ impl Opcode {
                             0x07 | 0x15 | 0x18 => {
                                 // Timer operations
                                 let op = TimerOp::decode(word)?;
-                                Ok(Timer(op))
+                                Ok(Self::Timer(op))
                             }
                             0x0A => {
                                 // Key operations 2/2
                                 let op = KeyOp::decode(word)?;
-                                Ok(Key(op))
+                                Ok(Self::Key(op))
                             }
                             0x1E | 0x29 | 0x55 | 0x65 => {
                                 // Memory operation 2/2
                                 let op = MemoryOp::decode(word)?;
-                                Ok(Memory(op))
+                                Ok(Self::Memory(op))
                             }
                             0x33 => {
                                 // BCD operation
                                 let idx_x = ((word & 0x0F00) >> 8) as usize;
-                                Ok(Bcd(idx_x))
+                                Ok(Self::Bcd(idx_x))
                             }
                             _ => Err(DecodeError::new(word)),
                         }
@@ -542,8 +534,8 @@ mod tests {
     #[test]
     fn decode_const_op() {
         let test_data = [
-            (0x6822, Ok(Assign(0x8, 0x22))),
-            (0x7344, Ok(AddAssign(0x3, 0x44))),
+            (0x6822, Ok(ConstOp::Assign(0x8, 0x22))),
+            (0x7344, Ok(ConstOp::AddAssign(0x3, 0x44))),
             (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
@@ -556,11 +548,11 @@ mod tests {
     #[test]
     fn decode_bit_op() {
         let test_data = [
-            (0x8121, Ok(OrAssign(1, 2))),
-            (0x8342, Ok(AndAssign(3, 4))),
-            (0x8213, Ok(XorAssign(2, 1))),
-            (0x8AB6, Ok(ShiftRight(0xA))),
-            (0x8BAE, Ok(ShiftLeft(0xB))),
+            (0x8121, Ok(BitOp::OrAssign(1, 2))),
+            (0x8342, Ok(BitOp::AndAssign(3, 4))),
+            (0x8213, Ok(BitOp::XorAssign(2, 1))),
+            (0x8AB6, Ok(BitOp::ShiftRight(0xA))),
+            (0x8BAE, Ok(BitOp::ShiftLeft(0xB))),
             (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
@@ -588,7 +580,7 @@ mod tests {
     #[test]
     fn decode_memory_op() {
         let test_data = [
-            (0xA123, Ok(SetI(0x0123))),
+            (0xA123, Ok(MemoryOp::SetI(0x0123))),
             (0xFA1E, Ok(MemoryOp::AddAssign(0xA))),
             (0xFB29, Ok(MemoryOp::SetSpriteAddr(0xB))),
             (0xF355, Ok(MemoryOp::RegDump(0x3))),
@@ -606,10 +598,10 @@ mod tests {
     #[test]
     fn decode_key_op() {
         let test_data = [
-            (0xEA9E, Ok(KeyEq(0xA))),
-            (0xECA1, Ok(KeyNe(0xC))),
+            (0xEA9E, Ok(KeyOp::KeyEq(0xA))),
+            (0xECA1, Ok(KeyOp::KeyNe(0xC))),
             (0xE000, Err(DecodeError::new(0xE000))),
-            (0xF00A, Ok(GetKey(0x0))),
+            (0xF00A, Ok(KeyOp::GetKey(0x0))),
             (0xF000, Err(DecodeError::new(0xF000))),
             (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
@@ -623,9 +615,9 @@ mod tests {
     #[test]
     fn decode_timer_op() {
         let test_data = [
-            (0xFA07, Ok(GetDelay(0xA))),
-            (0xFB15, Ok(SetDelay(0xB))),
-            (0xFC18, Ok(SetSound(0xC))),
+            (0xFA07, Ok(TimerOp::GetDelay(0xA))),
+            (0xFB15, Ok(TimerOp::SetDelay(0xB))),
+            (0xFC18, Ok(TimerOp::SetSound(0xC))),
             (0xF000, Err(DecodeError::new(0xF000))),
             (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
@@ -640,33 +632,39 @@ mod tests {
     fn decode_opcode() {
         let test_data = [
             // Flow
-            (0x00EE, Ok(Flow(FlowOp::Return))),
-            (0x1ABC, Ok(Flow(FlowOp::Jump(0x0ABC)))),
+            (0x00EE, Ok(Opcode::Flow(FlowOp::Return))),
+            (0x1ABC, Ok(Opcode::Flow(FlowOp::Jump(0x0ABC)))),
             // Display
-            (0x00E0, Ok(Display(DisplayOp::Clear))),
-            (0xD123, Ok(Display(DisplayOp::DrawSprite((1, 2), 3)))),
+            (0x00E0, Ok(Opcode::Display(DisplayOp::Clear))),
+            (
+                0xD123,
+                Ok(Opcode::Display(DisplayOp::DrawSprite((1, 2), 3))),
+            ),
             // Conditional
-            (0x4220, Ok(Conditional(ConditionalOp::VxNeNN(2, 0x20)))),
+            (
+                0x4220,
+                Ok(Opcode::Conditional(ConditionalOp::VxNeNN(2, 0x20))),
+            ),
             (0x5343, Err(DecodeError::new(0x5343))),
             // Const
-            (0x7344, Ok(Opcode::Const(AddAssign(0x3, 0x44)))),
+            (0x7344, Ok(Opcode::Const(ConstOp::AddAssign(0x3, 0x44)))),
             // Bitwise
-            (0x8213, Ok(Opcode::Bitwise(XorAssign(2, 1)))),
+            (0x8213, Ok(Opcode::Bitwise(BitOp::XorAssign(2, 1)))),
             // Math
             (0x8AB4, Ok(Opcode::Math(MathOp::AddAssign(0xA, 0xB)))),
             // Memory
-            (0xA123, Ok(Memory(SetI(0x0123)))),
-            (0xFB29, Ok(Memory(MemoryOp::SetSpriteAddr(0xB)))),
+            (0xA123, Ok(Opcode::Memory(MemoryOp::SetI(0x0123)))),
+            (0xFB29, Ok(Opcode::Memory(MemoryOp::SetSpriteAddr(0xB)))),
             // Key
-            (0xECA1, Ok(Key(KeyNe(0xC)))),
-            (0xF00A, Ok(Key(GetKey(0x0)))),
+            (0xECA1, Ok(Opcode::Key(KeyOp::KeyNe(0xC)))),
+            (0xF00A, Ok(Opcode::Key(KeyOp::GetKey(0x0)))),
             // Timer
-            (0xFB15, Ok(Timer(SetDelay(0xB)))),
-            (0xFC18, Ok(Timer(SetSound(0xC)))),
+            (0xFB15, Ok(Timer(TimerOp::SetDelay(0xB)))),
+            (0xFC18, Ok(Timer(TimerOp::SetSound(0xC)))),
             // Random
-            (0xCABC, Ok(Random(0xA, 0xBC))),
+            (0xCABC, Ok(Opcode::Random(0xA, 0xBC))),
             // BCD
-            (0xFA33, Ok(Bcd(0xA))),
+            (0xFA33, Ok(Opcode::Bcd(0xA))),
             // Error
             (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
