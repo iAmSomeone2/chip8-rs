@@ -1,12 +1,13 @@
-use std::{error::Error, fmt};
-use std::convert::identity;
-use std::fmt::Formatter;
 use crate::opcode::BitOp::{AndAssign, OrAssign, ShiftLeft, ShiftRight, XorAssign};
 use crate::opcode::ConstOp::{AddAssign, Assign};
 use crate::opcode::KeyOp::{GetKey, KeyEq, KeyNe};
 use crate::opcode::MemoryOp::SetI;
-use crate::opcode::Opcode::{Bcd, Conditional, Display, Flow, Key, Memory, Random, SetVxToVy, Timer};
+use crate::opcode::Opcode::{
+    Bcd, Conditional, Display, Flow, Key, Memory, Random, SetVxToVy, Timer,
+};
 use crate::opcode::TimerOp::{GetDelay, SetDelay, SetSound};
+use std::fmt::Formatter;
+use std::{error::Error, fmt};
 
 /// Error used when a 16-bit word cannot be decoded into an opcode
 #[derive(Debug, PartialEq, Eq)]
@@ -16,9 +17,7 @@ pub struct DecodeError {
 
 impl DecodeError {
     pub fn new(word: u16) -> Self {
-        Self {
-            word
-        }
+        Self { word }
     }
 }
 
@@ -29,7 +28,6 @@ impl fmt::Display for DecodeError {
 }
 
 impl Error for DecodeError {}
-
 
 /// Split a u16 value into its 4 nibbles
 fn split_nibbles(word: u16) -> (u8, u8, u8, u8) {
@@ -59,7 +57,7 @@ fn split_8bit(word: u16) -> (u8, u8, u8) {
 
 /// Operations performable on the display
 #[derive(Debug, PartialEq, Eq)]
-enum DisplayOp {
+pub enum DisplayOp {
     /// Clear the display
     Clear,
     /// Draw a sprite at coordinate (VX, VY) 8 pixels wide with a height of N
@@ -69,20 +67,17 @@ enum DisplayOp {
 impl DisplayOp {
     fn decode(word: u16) -> Result<Self, DecodeError> {
         return match word {
-            0x00E0 => {
-                Ok(Self::Clear)
-            }
+            0x00E0 => Ok(Self::Clear),
             _ => {
                 let nibbles = split_nibbles(word);
                 if nibbles.0 != 0xD {
                     return Err(DecodeError::new(word));
                 }
 
-                Ok(
-                    DisplayOp::DrawSprite(
-                        (nibbles.1 as usize, nibbles.2 as usize), nibbles.3,
-                    )
-                )
+                Ok(DisplayOp::DrawSprite(
+                    (nibbles.1 as usize, nibbles.2 as usize),
+                    nibbles.3,
+                ))
             }
         };
     }
@@ -90,7 +85,7 @@ impl DisplayOp {
 
 /// Program flow operations
 #[derive(Debug, PartialEq, Eq)]
-enum FlowOp {
+pub enum FlowOp {
     /// Return from subroutine
     Return,
     /// Jump to contained address
@@ -111,16 +106,16 @@ impl FlowOp {
                     0x1 => Ok(FlowOp::Jump(constant)),
                     0x2 => Ok(FlowOp::Call(constant)),
                     0xB => Ok(FlowOp::IndexedJump(constant)),
-                    _ => Err(DecodeError::new(word))
+                    _ => Err(DecodeError::new(word)),
                 }
             }
-        }
+        };
     }
 }
 
 /// Conditional flow operations
 #[derive(Debug, PartialEq, Eq)]
-enum ConditionalOp {
+pub enum ConditionalOp {
     /// Skip the next instruction if Vx == NN
     VxEqNN(usize, u8),
     /// Skip the next instruction if Vx != NN
@@ -141,9 +136,9 @@ impl ConditionalOp {
                 match nibbles.0 {
                     0x3 => Ok(ConditionalOp::VxEqNN(idx_x, value)),
                     0x4 => Ok(ConditionalOp::VxNeNN(idx_x, value)),
-                    _ => Err(DecodeError::new(word))
+                    _ => Err(DecodeError::new(word)),
                 }
-            },
+            }
             0x5 | 0x9 => {
                 let (_, idx_x, idx_y, check) = nibbles;
                 if check != 0 {
@@ -154,17 +149,17 @@ impl ConditionalOp {
                 match nibbles.0 {
                     0x5 => Ok(ConditionalOp::VxEqVy(idx_x, idx_y)),
                     0x9 => Ok(ConditionalOp::VxNeVy(idx_x, idx_y)),
-                    _ => Err(DecodeError::new(word))
+                    _ => Err(DecodeError::new(word)),
                 }
             }
-            _ => Err(DecodeError::new(word))
-        }
+            _ => Err(DecodeError::new(word)),
+        };
     }
 }
 
 /// Constant value operations
 #[derive(Debug, PartialEq, Eq)]
-enum ConstOp {
+pub enum ConstOp {
     /// Set Vx to NN
     Assign(usize, u8),
     /// Add the value of NN to Vx
@@ -179,13 +174,13 @@ impl ConstOp {
             0x6 => Ok(Assign(idx_x, value)),
             0x7 => Ok(AddAssign(idx_x, value)),
             _ => Err(DecodeError::new(word)),
-        }
+        };
     }
 }
 
 /// Bitwise operations
 #[derive(Debug, PartialEq, Eq)]
-enum BitOp {
+pub enum BitOp {
     /// Set Vx to Vx OR Vy (Vx |= Vy)
     OrAssign(usize, usize),
     /// Set Vx to Vx AND Vy (Vx &= Vy)
@@ -213,14 +208,14 @@ impl BitOp {
             0x3 => Ok(XorAssign(idx_x, idx_y)),
             0x6 => Ok(ShiftRight(idx_x)),
             0xE => Ok(ShiftLeft(idx_x)),
-            _ => Err(DecodeError::new(word))
-        }
+            _ => Err(DecodeError::new(word)),
+        };
     }
 }
 
 /// Math operations
 #[derive(Debug, PartialEq, Eq)]
-enum MathOp {
+pub enum MathOp {
     /// Add Vy to Vx. Set VF to 1 if there is a carry (overflow); otherwise 0
     AddAssign(usize, usize),
     /// Subtract Vy from Vx. Set VF to 0 if there is a borrow (underflow); otherwise 1
@@ -242,13 +237,13 @@ impl MathOp {
             0x4 => Ok(MathOp::AddAssign(idx_x, idx_y)),
             0x5 => Ok(MathOp::SubAssign(idx_x, idx_y)),
             0x7 => Ok(MathOp::Subtract(idx_x, idx_y)),
-            _ => Err(DecodeError::new(word))
-        }
+            _ => Err(DecodeError::new(word)),
+        };
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum MemoryOp {
+pub enum MemoryOp {
     /// Set I to the address NNN
     SetI(u16),
     /// Add Vx to I
@@ -278,16 +273,16 @@ impl MemoryOp {
                     0x29 => Ok(MemoryOp::SetSpriteAddr(idx_x)),
                     0x55 => Ok(MemoryOp::RegDump(idx_x)),
                     0x65 => Ok(MemoryOp::RegLoad(idx_x)),
-                    _ => Err(DecodeError::new(word))
+                    _ => Err(DecodeError::new(word)),
                 }
             }
-            _ => Err(DecodeError::new(word))
-        }
+            _ => Err(DecodeError::new(word)),
+        };
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum KeyOp {
+pub enum KeyOp {
     /// Skip the next instruction if the key stored in Vx is pressed
     KeyEq(usize),
     /// Skip the next instruction if the key stored in Vx is not pressed
@@ -301,26 +296,22 @@ impl KeyOp {
         let (nibble, idx_x, sub_op) = split_8bit(word);
         let idx_x = idx_x as usize;
         return match nibble {
-            0xE => {
-                match sub_op {
-                    0x9E => Ok(KeyEq(idx_x)),
-                    0xA1 => Ok(KeyNe(idx_x)),
-                    _ => Err(DecodeError::new(word))
-                }
-            }
-            0xF => {
-                match sub_op {
-                    0x0A => Ok(GetKey(idx_x)),
-                    _ => Err(DecodeError::new(word))
-                }
-            }
-            _ => Err(DecodeError::new(word))
-        }
+            0xE => match sub_op {
+                0x9E => Ok(KeyEq(idx_x)),
+                0xA1 => Ok(KeyNe(idx_x)),
+                _ => Err(DecodeError::new(word)),
+            },
+            0xF => match sub_op {
+                0x0A => Ok(GetKey(idx_x)),
+                _ => Err(DecodeError::new(word)),
+            },
+            _ => Err(DecodeError::new(word)),
+        };
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum TimerOp {
+pub enum TimerOp {
     /// Set Vx to the value of the delay timer
     GetDelay(usize),
     /// Set the delay timer to Vx
@@ -341,13 +332,13 @@ impl TimerOp {
             0x07 => Ok(GetDelay(idx_x)),
             0x15 => Ok(SetDelay(idx_x)),
             0x18 => Ok(SetSound(idx_x)),
-            _ => Err(DecodeError::new(word))
-        }
+            _ => Err(DecodeError::new(word)),
+        };
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Opcode {
+pub enum Opcode {
     /// Display operations (see [DisplayOp])
     Display(DisplayOp),
     /// Program flow operations (see [FlowOp])
@@ -375,7 +366,7 @@ enum Opcode {
 }
 
 impl Opcode {
-    fn decode(word: u16) -> Result<Self, DecodeError> {
+    pub fn decode(word: u16) -> Result<Self, DecodeError> {
         let nibble = split_nibbles(word);
         return match word {
             0x00E0 => Ok(Display(DisplayOp::Clear)),
@@ -386,7 +377,7 @@ impl Opcode {
                         // Flow operations
                         let op = FlowOp::decode(word)?;
                         Ok(Flow(op))
-                    },
+                    }
                     0x3 | 0x4 | 0x5 | 0x9 => {
                         // Conditional operations
                         let op = ConditionalOp::decode(word)?;
@@ -395,7 +386,10 @@ impl Opcode {
                     0xD => {
                         // Draw sprite
                         let (_, idx_x, idx_y, n) = nibble;
-                        Ok(Display(DisplayOp::DrawSprite((idx_x as usize, idx_y as usize), n)))
+                        Ok(Display(DisplayOp::DrawSprite(
+                            (idx_x as usize, idx_y as usize),
+                            n,
+                        )))
                     }
                     0x6 | 0x7 => {
                         // Const operations
@@ -409,13 +403,13 @@ impl Opcode {
                                 // Bitwise operations
                                 let op = BitOp::decode(word)?;
                                 Ok(Self::Bitwise(op))
-                            },
+                            }
                             0x4 | 0x5 | 0x7 => {
                                 // Math operations
                                 let op = MathOp::decode(word)?;
                                 Ok(Self::Math(op))
                             }
-                            _ => Err(DecodeError::new(word))
+                            _ => Err(DecodeError::new(word)),
                         }
                     }
                     0xA => {
@@ -457,20 +451,20 @@ impl Opcode {
                                 let idx_x = ((word & 0x0F00) >> 8) as usize;
                                 Ok(Bcd(idx_x))
                             }
-                            _ => Err(DecodeError::new(word))
+                            _ => Err(DecodeError::new(word)),
                         }
                     }
-                    _ => Err(DecodeError::new(word))
+                    _ => Err(DecodeError::new(word)),
                 }
-            },
-        }
+            }
+        };
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::opcode::Opcode::Timer;
     use super::*;
+    use crate::opcode::Opcode::Timer;
 
     #[test]
     fn split_nibbles() {
@@ -503,7 +497,7 @@ mod tests {
         let test_data = [
             (0x00E0, Ok(DisplayOp::Clear)),
             (0xD123, Ok(DisplayOp::DrawSprite((1, 2), 3))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -519,7 +513,7 @@ mod tests {
             (0x1ABC, Ok(FlowOp::Jump(0x0ABC))),
             (0x2ABC, Ok(FlowOp::Call(0x0ABC))),
             (0xBABC, Ok(FlowOp::IndexedJump(0x0ABC))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -536,7 +530,7 @@ mod tests {
             (0x5340, Ok(ConditionalOp::VxEqVy(0x3, 0x4))),
             (0x5343, Err(DecodeError::new(0x5343))),
             (0x9340, Ok(ConditionalOp::VxNeVy(0x3, 0x4))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -550,7 +544,7 @@ mod tests {
         let test_data = [
             (0x6822, Ok(Assign(0x8, 0x22))),
             (0x7344, Ok(AddAssign(0x3, 0x44))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -567,7 +561,7 @@ mod tests {
             (0x8213, Ok(XorAssign(2, 1))),
             (0x8AB6, Ok(ShiftRight(0xA))),
             (0x8BAE, Ok(ShiftLeft(0xB))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -582,7 +576,7 @@ mod tests {
             (0x8AB4, Ok(MathOp::AddAssign(0xA, 0xB))),
             (0x8CD5, Ok(MathOp::SubAssign(0xC, 0xD))),
             (0x8EF7, Ok(MathOp::Subtract(0xE, 0xF))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -594,13 +588,13 @@ mod tests {
     #[test]
     fn decode_memory_op() {
         let test_data = [
-            (0xA123, Ok(MemoryOp::SetI(0x0123))),
+            (0xA123, Ok(SetI(0x0123))),
             (0xFA1E, Ok(MemoryOp::AddAssign(0xA))),
             (0xFB29, Ok(MemoryOp::SetSpriteAddr(0xB))),
             (0xF355, Ok(MemoryOp::RegDump(0x3))),
             (0xFC65, Ok(MemoryOp::RegLoad(0xC))),
             (0xF099, Err(DecodeError::new(0xF099))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -612,12 +606,12 @@ mod tests {
     #[test]
     fn decode_key_op() {
         let test_data = [
-            (0xEA9E, Ok(KeyOp::KeyEq(0xA))),
-            (0xECA1, Ok(KeyOp::KeyNe(0xC))),
+            (0xEA9E, Ok(KeyEq(0xA))),
+            (0xECA1, Ok(KeyNe(0xC))),
             (0xE000, Err(DecodeError::new(0xE000))),
-            (0xF00A, Ok(KeyOp::GetKey(0x0))),
+            (0xF00A, Ok(GetKey(0x0))),
             (0xF000, Err(DecodeError::new(0xF000))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -633,7 +627,7 @@ mod tests {
             (0xFB15, Ok(SetDelay(0xB))),
             (0xFC18, Ok(SetSound(0xC))),
             (0xF000, Err(DecodeError::new(0xF000))),
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
@@ -674,7 +668,7 @@ mod tests {
             // BCD
             (0xFA33, Ok(Bcd(0xA))),
             // Error
-            (ERR_OP, Err(DecodeError::new(ERR_OP)))
+            (ERR_OP, Err(DecodeError::new(ERR_OP))),
         ];
 
         for data in test_data {
