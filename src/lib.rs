@@ -24,8 +24,10 @@ impl Display {
     const STANDARD_DIMENSIONS: (usize, usize) = (64, 32);
     const SUPER_DIMENSIONS: (usize, usize) = (128, 64);
 
-    const PX_ON: char = '█';
-    const PX_OFF: char = ' ';
+    const FULL_ON: char = '█';
+    const TOP_ON: char = '\u{2580}';
+    const BOTTOM_ON: char = '\u{2584}';
+    const FULL_OFF: char = ' ';
 
     pub fn new(env: Environment) -> Self {
         let dimensions = match env {
@@ -76,12 +78,18 @@ impl Display {
         let mut display_str = String::new();
         let (width, height) = self.dimensions;
 
-        for row in 0..height {
+        for row in (0..height).step_by(2) {
             for col in 0..width {
-                let px = if self.get_pixel((col, row)) {
-                    Display::PX_ON
+                let top_val = self.get_pixel((col, row));
+                let bottom_val = self.get_pixel((col, row + 1));
+                let px = if top_val && bottom_val {
+                    Display::FULL_ON
+                } else if top_val && !bottom_val {
+                    Display::TOP_ON
+                } else if !top_val && bottom_val {
+                    Display::BOTTOM_ON
                 } else {
-                    Display::PX_OFF
+                    Display::FULL_OFF
                 };
                 display_str.push(px);
             }

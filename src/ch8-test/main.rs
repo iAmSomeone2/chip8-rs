@@ -19,7 +19,7 @@ const LOGO_PRG: [u8; 132] = [
 const SIXTY_IPS: u64 = 16_667;
 
 fn draw_display(display: &Display) {
-    let display_str = format!("\x1b[3J{}", display.as_string());
+    let display_str = format!("\x1b[2J\x1b[1;1H{}", display.as_string());
     let mut stdout_lock = io::stdout().lock();
     stdout_lock.write(display_str.as_bytes()).unwrap();
 }
@@ -30,6 +30,7 @@ fn main() {
     let mut chip8 = Chip8::new();
     chip8.load_program(&LOGO_PRG).expect("could not load test program");
 
+    print!("\x1b[97;40m");
     loop {
         chip8.step().unwrap_or_else(|err| {
             eprintln!("{err}");
