@@ -149,7 +149,7 @@ pub struct Chip8 {
     sound_timer: u8,
     /// Addressable memory (4kB)
     memory: [u8; FOUR_KB],
-    /// Shared pointer to a Display instance
+    /// Display instance
     display: Display,
 }
 
