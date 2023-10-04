@@ -101,15 +101,22 @@ impl Display {
         return display_str;
     }
 
-    pub fn as_buffer(&self) -> Vec<bool> {
+    pub fn as_bool_buffer(&self) -> [u32; 2048] {
         let (width, height) = self.dimensions;
-        let mut buffer = Vec::with_capacity(width * height);
+        let mut buffer = [0; 2048];
 
-        for row in &self.buffer {
-            for col in row {
-                buffer.push(*col);
+        for y in 0..height {
+            for x in 0..width {
+                let buff_idx = (y * width) + x;
+                buffer[buff_idx] = if self.buffer[y][x] { 1 } else { 0 } ;
             }
         }
+
+        // for row in &self.buffer {
+        //     for col in row {
+        //         buffer.push(*col);
+        //     }
+        // }
 
         return buffer;
     }
