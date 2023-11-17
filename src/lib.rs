@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt;
 use std::fmt::Formatter;
+use std::time::Instant;
 
 use opcode::{ConstOp, DecodeError, DisplayOp, FlowOp, MemoryOp, Opcode};
 
@@ -29,6 +30,11 @@ impl Display {
     const BOTTOM_ON: char = '\u{2584}';
     const FULL_OFF: char = ' ';
 
+    pub const RGBA8_BUFF_SIZE: usize = 8192;
+
+    const WHITE_BYTES: [u8; 4] = [u8::MAX, u8::MAX, u8::MAX, u8::MAX];
+    const BLACK_BYTES: [u8; 4] = [0, 0, 0, u8::MAX];
+
     pub fn new(env: Environment) -> Self {
         let dimensions = match env {
             Environment::Standard => Self::STANDARD_DIMENSIONS,
@@ -49,12 +55,9 @@ impl Display {
     }
 
     pub fn clear(&mut self) {
-        let (width, height) = self.dimensions;
-        for y in 0..height {
-            for x in 0..width {
-                self.buffer[y][x] = false;
-            }
-        }
+        self.buffer.iter_mut()
+            .flatten()
+            .for_each(|pixel| *pixel = false);
     }
 
     /// Sets a pixel at the specified coordinate to "on" if `value` is `true` or "off" if `value` is
@@ -66,12 +69,12 @@ impl Display {
         let was_on = self.buffer[y][x];
         self.buffer[y][x] = value;
 
-        return was_on && !self.buffer[y][x];
+        was_on && !self.buffer[y][x]
     }
 
     fn get_pixel(&self, coordinate: (usize, usize)) -> bool {
         let (x, y) = coordinate;
-        return self.buffer[y][x];
+        self.buffer[y][x]
     }
 
     pub fn as_string(&self) -> String {
@@ -98,27 +101,25 @@ impl Display {
             }
         }
 
-        return display_str;
+        display_str
     }
 
-    pub fn as_bool_buffer(&self) -> [u32; 2048] {
+    pub fn as_rgba8_buffer(&self) -> Vec<u8> {
         let (width, height) = self.dimensions;
-        let mut buffer = [0; 2048];
+        let mut rgba_buffer = Vec::with_capacity(Display::RGBA8_BUFF_SIZE);
 
         for y in 0..height {
             for x in 0..width {
-                let buff_idx = (y * width) + x;
-                buffer[buff_idx] = if self.buffer[y][x] { 1 } else { 0 } ;
+                // let buff_idx = (y * width) + x;
+                if self.buffer[y][x] {
+                    rgba_buffer.extend(Display::WHITE_BYTES.iter());
+                } else {
+                    rgba_buffer.extend(Display::BLACK_BYTES.iter());
+                };
             }
         }
 
-        // for row in &self.buffer {
-        //     for col in row {
-        //         buffer.push(*col);
-        //     }
-        // }
-
-        return buffer;
+        rgba_buffer
     }
 }
 
@@ -141,13 +142,15 @@ impl fmt::Display for ProgramLoadError {
     }
 }
 
+const REGISTER_COUNT: usize = 16;
+
 pub struct Chip8 {
     /// Program Counter
-    pc: u16,
+    pc: usize,
     /// Index Register
-    i: u16,
+    i: usize,
     /// General-purpose variable registers
-    v: [u8; 16],
+    v: [u8; REGISTER_COUNT],
     /// Call stack
     stack: Vec<u16>,
     /// Delay timer decremented every 1/60th of a second until it reaches 0
@@ -158,9 +161,32 @@ pub struct Chip8 {
     memory: [u8; FOUR_KB],
     /// Display instance
     display: Display,
+    /// Point in time when previous step completed
+    prev_step_instant: Instant,
+}
+
+impl Default for Chip8 {
+    fn default() -> Self {
+        let mut memory = [0u8; FOUR_KB];
+        memory[..Chip8::FONT.len()].copy_from_slice(&Chip8::FONT[..]);
+
+        Self {
+            pc: Chip8::PRG_START,
+            i: 0,
+            v: [0u8; REGISTER_COUNT],
+            stack: vec![],
+            delay_timer: 0,
+            sound_timer: 0,
+            memory,
+            display: Display::new(Environment::Standard),
+            prev_step_instant: Instant::now(),
+        }
+    }
 }
 
 impl Chip8 {
+    const FLAG_REGISTER: usize = 0xF;
+
     /// Interpreter font data
     #[rustfmt::skip]
     const FONT: [u8; 80] = [
@@ -183,26 +209,8 @@ impl Chip8 {
     ];
 
     /// Program start address
-    const PRG_START: u16 = 0x0200;
-    const MAX_PRG_SIZE: usize = (0x1000 - Chip8::PRG_START) as usize;
-
-    pub fn new() -> Self {
-        let mut memory = [0u8; FOUR_KB];
-        for i in 0..Chip8::FONT.len() {
-            memory[i] = Chip8::FONT[i];
-        }
-
-        Self {
-            pc: Chip8::PRG_START,
-            i: 0,
-            v: [0u8; 16],
-            stack: vec![],
-            delay_timer: 0,
-            sound_timer: 0,
-            memory,
-            display: Display::new(Environment::Standard),
-        }
-    }
+    const PRG_START: usize = 0x0200;
+    const MAX_PRG_SIZE: usize = FOUR_KB - (Chip8::PRG_START as usize);
 
     pub fn load_program(&mut self, prg_data: &[u8]) -> Result<(), ProgramLoadError> {
         let prg_size = prg_data.len();
@@ -210,18 +218,16 @@ impl Chip8 {
             return Err(ProgramLoadError::new(prg_size));
         }
 
-        for i in 0..prg_size {
-            let write_loc = i + (Chip8::PRG_START as usize);
-            self.memory[write_loc] = prg_data[i];
-        }
+        let prg_end = (Chip8::PRG_START as usize) + prg_size;
+        let write_range = (Chip8::PRG_START as usize)..prg_end;
+        self.memory[write_range].copy_from_slice(prg_data);
 
         // Clear memory past the new program
-        let start = (Chip8::PRG_START as usize) + prg_size;
-        if start == self.memory.len() {
+        if prg_end == self.memory.len() {
             return Ok(());
         }
 
-        for i in start..self.memory.len() {
+        for i in prg_end..self.memory.len() {
             self.memory[i] = 0;
         }
 
@@ -232,8 +238,17 @@ impl Chip8 {
         self.display.clear();
     }
 
+    fn decrement_timers(&mut self) {
+        if self.sound_timer > 0 {
+            self.sound_timer -= 1;
+        }
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
+        }
+    }
+
     fn jump(&mut self, address: u16) {
-        self.pc = address;
+        self.pc = address.into();
     }
 
     fn set_variable_register(&mut self, index: usize, value: u8) {
@@ -246,17 +261,17 @@ impl Chip8 {
     }
 
     fn set_index_register(&mut self, value: u16) {
-        self.i = value;
+        self.i = value.into();
     }
 
     fn draw_sprite(&mut self, coordinate_registers: (usize, usize), height: u8) {
         let x = self.v[coordinate_registers.0];
         let y = self.v[coordinate_registers.1];
-        self.v[0xF] = 0;
+        self.v[Chip8::FLAG_REGISTER] = 0;
 
         for row in 0..height {
             // read byte pointed at by I
-            let row_idx = (self.i + row as u16) as usize;
+            let row_idx = self.i + (row as usize);
             let row_byte = self.memory[row_idx];
             for col in 0..8 {
                 let pos_x = (x + col) as usize;
@@ -265,7 +280,7 @@ impl Chip8 {
                 let pixel_val = pixel_val == 0b1;
 
                 if self.display.set_pixel((pos_x, pos_y), pixel_val) {
-                    self.v[0xF] = 1;
+                    self.v[Chip8::FLAG_REGISTER] = 1;
                 }
             }
         }
@@ -279,12 +294,12 @@ impl Chip8 {
         self.pc += 2;
 
         let instruction = (high_byte << 8) | low_byte;
-        return Opcode::decode(instruction);
+        Opcode::decode(instruction)
     }
 
     fn execute(&mut self, opcode: Opcode) {
         match opcode {
-            Opcode::Display(displayOp) => match displayOp {
+            Opcode::Display(display_op) => match display_op {
                 DisplayOp::Clear => {
                     self.clear_display();
                 }
@@ -292,7 +307,7 @@ impl Chip8 {
                     self.draw_sprite(coord_registers, height)
                 }
             },
-            Opcode::Const(constOp) => match constOp {
+            Opcode::Const(const_op) => match const_op {
                 ConstOp::Assign(idx, value) => {
                     self.set_variable_register(idx, value);
                 }
@@ -300,7 +315,7 @@ impl Chip8 {
                     self.add_to_register(idx, value);
                 }
             },
-            Opcode::Flow(flowOp) => match flowOp {
+            Opcode::Flow(flow_op) => match flow_op {
                 FlowOp::Jump(addr) => {
                     self.jump(addr);
                 }
@@ -314,7 +329,7 @@ impl Chip8 {
                     todo!();
                 }
             },
-            Opcode::Memory(memoryOp) => match memoryOp {
+            Opcode::Memory(memory_op) => match memory_op {
                 MemoryOp::SetI(value) => {
                     self.set_index_register(value);
                 }
@@ -380,23 +395,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn display_clear() {
+        let mut display = Display::new(Environment::Standard);
+
+        display.buffer.iter_mut()
+            .flatten()
+            .for_each(|pixel| *pixel = true);
+
+        display.clear();
+        assert!(display.buffer.iter().flatten().all(|pixel| !(*pixel)));
+    }
+
+    #[test]
     fn chip8_fetch_and_decode() {
         let prg_start: usize = Chip8::PRG_START as usize;
-        let mut chip8 = Chip8::new();
+        let mut chip8 = Chip8::default();
         // Clear screen (0x00E0)
         chip8.memory[prg_start] = 0x00;
         chip8.memory[prg_start + 1] = 0xE0;
 
         let opcode = chip8.fetch_and_decode();
         assert_eq!(opcode, Ok(Opcode::Display(DisplayOp::Clear)));
-        assert_eq!(chip8.pc, (prg_start + 2) as u16);
+        assert_eq!(chip8.pc, prg_start + 2);
     }
 
     #[test]
     fn chip8_add_to_register() {
         let test_data = [(0, 10, 5, 15), (1, u8::MAX, 32, 31)];
 
-        let mut chip8 = Chip8::new();
+        let mut chip8 = Chip8::default();
         for (index, initial, operand, expected) in test_data {
             chip8.v[index] = initial;
             chip8.add_to_register(index, operand);
@@ -406,7 +433,7 @@ mod tests {
 
     #[test]
     fn chip8_draw_sprite() {
-        let mut chip8 = Chip8::new();
+        let mut chip8 = Chip8::default();
         chip8.v[1] = 10;
         chip8.v[2] = 11;
         chip8.memory[0] = 0b11001010;
